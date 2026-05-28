@@ -1,0 +1,4 @@
+data/price.db
+logs/
+__pycache__/
+venv/
