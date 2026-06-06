@@ -3,16 +3,16 @@ import os
 import sqlite3
 import pandas as pd
 
-# --- DBパスを相対パスで安全に解決 ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
-DB_PATH = os.path.join(PROJECT_ROOT, "price-monitor", "data", "price.db")
+
+def get_db_path():
+    # pytest では DB_PATH を上書きする
+    return os.getenv("DB_PATH", "/data/price-monitor.sqlite")
 
 
 # ① 価格推移グラフ用（全件）
 def load_price_history():
     query = """
-    SELECT 
+    SELECT
         ph.product_id,
         p.name AS product_name,
         ph.price,
@@ -22,8 +22,7 @@ def load_price_history():
     ORDER BY ph.scraped_at ASC;
     """
 
-    # with構文で接続リークを完全防止
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(get_db_path()) as conn:
         df = pd.read_sql_query(query, conn)
 
     return df
@@ -31,7 +30,6 @@ def load_price_history():
 
 # ② 最新価格一覧用（真の最新1件を取得）
 def load_latest_prices():
-    # SQLite 3.25+ で使える ROW_NUMBER() を使用
     query = """
     WITH latest AS (
         SELECT
@@ -55,7 +53,7 @@ def load_latest_prices():
     ORDER BY last_update ASC;
     """
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(get_db_path()) as conn:
         df = pd.read_sql_query(query, conn)
 
     return df
