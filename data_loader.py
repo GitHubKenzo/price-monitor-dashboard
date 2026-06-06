@@ -5,7 +5,8 @@ import pandas as pd
 
 # --- DBパスを相対パスで安全に解決 ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "data", "price.db")
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+DB_PATH = os.path.join(PROJECT_ROOT, "price-monitor", "data", "price.db")
 
 
 # ① 価格推移グラフ用（全件）
