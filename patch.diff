@@ -1,0 +1,206 @@
+diff --git a/app.py b/app.py --- a/app.py +++ b/app.py @@ -15,6 +15,7 @@ def create_price_graph(): y="price", color="product_name", markers=True,
+
+   line_shape="linear",
+   title="Price History"
+
+) @@ -53,7 +54,7 @@ def render_content(tab):
+
+elif tab == "tab-2": latest_df = load_latest_prices()
+
+
+
+   latest_df["商品名"] = latest_df.apply(
+       lambda row: f'<a href="{row["url"]}" target="_blank">{row["name"]}</a>',
+       axis=1
+
+diff --git a/data_loader.py b/data_loader.py --- a/data_loader.py +++ b/data_loader.py @@ -1,12 +1,7 @@
+
+data_loader.py
+
+-import os import sqlite3 import pandas as pd
+
+-# --- DBパスを相対パスで安全に解決 --- -BASE_DIR = os.path.dirname(os.path.abspath(file)) -PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..")) -DB_PATH = os.path.join(PROJECT_ROOT, "price-monitor", "data", "price.db") +DB_PATH = "/data/price-monitor.sqlite" @@ -25,7 +20,7 @@ def load_price_history(): """
+
+ # with構文で接続リークを完全防止
+
+with sqlite3.connect(DB_PATH) as conn:
+
+with sqlite3.connect(DB_PATH) as conn: df = pd.read_sql_query(query, conn)
+
+return df @@ -57,7 +52,7 @@ def load_latest_prices(): """
+
+with sqlite3.connect(DB_PATH) as conn:
+
+with sqlite3.connect(DB_PATH) as conn: df = pd.read_sql_query(query, conn)
+
+return df
+
+diff --git a/requirements.txt b/requirements.txt --- a/requirements.txt +++ b/requirements.txt @@ -1,4 +1,4 @@ dash pandas plotly -gunicorn +gunicorn>=21.0
+
+diff --git a/wsgi.py b/wsgi.py new file mode 100644 --- /dev/null +++ b/wsgi.py @@ -0,0 +1,12 @@ +# wsgi.py +""" +WSGI entrypoint for Gunicorn. +Dash exposes the underlying Flask server as app.server. +""" + +from app import app + +# Gunicorn が参照する WSGI アプリ +server = app.server
+
+diff --git a/gunicorn.conf.py b/gunicorn.conf.py new file mode 100644 --- /dev/null +++ b/gunicorn.conf.py @@ -0,0 +1,17 @@ +# gunicorn.conf.py +import multiprocessing +import os + +bind = os.getenv("GUNICORN_BIND", "0.0.0.0:8000") +workers = int(os.getenv("GUNICORN_WORKERS", multiprocessing.cpu_count() * 2 + 1)) +timeout = int(os.getenv("GUNICORN_TIMEOUT", "120")) + +accesslog = "-" +errorlog = "-" +loglevel = "info"
+
+diff --git a/Dockerfile b/Dockerfile new file mode 100644 --- /dev/null +++ b/Dockerfile @@ -0,0 +1,23 @@ +FROM python:3.11-slim + +ENV PYTHONDONTWRITEBYTECODE=1 \
+
+PYTHONUNBUFFERED=1 \
+
+TZ=Asia/Tokyo
+
+
+
++WORKDIR /app + +COPY requirements.txt /app/ +RUN pip install --upgrade pip setuptools wheel \
+
+&& pip install --no-cache-dir -r requirements.txt
+
+
+
++COPY . /app + +EXPOSE 8000 + +CMD ["gunicorn", "-c", "gunicorn.conf.py", "wsgi:server"]
+
+diff --git a/docker-compose.yml b/docker-compose.yml new file mode 100644 --- /dev/null +++ b/docker-compose.yml @@ -0,0 +1,47 @@ +version: "3.9" + +services:
+
+app:
+
+build: .
+
+container_name: price-monitor-app
+
+restart: always
+
+environment:
+
+ - DB_PATH=/data/price-monitor.sqlite
+
+ - GUNICORN_BIND=0.0.0.0:8000
+
+ - GUNICORN_WORKERS=3
+
+ - GUNICORN_TIMEOUT=120
+
+volumes:
+
+ - ../price-monitor/data/price.db:/data/price-monitor.sqlite
+
+expose:
+
+ - "8000"
+
+
+
+nginx:
+
+image: nginx:latest
+
+container_name: price-monitor-nginx
+
+restart: always
+
+depends_on:
+
+ - app
+
+ports:
+
+ - "80:80"
+
+ - "443:443"
+
+volumes:
+
+ - ./nginx.conf:/etc/nginx/nginx.conf:ro
+
+ - certs:/etc/letsencrypt
+
+ - ../price-monitor/data/price.db:/data/price-monitor.sqlite
+
+
+
++volumes:
+
+certs:
+
+diff --git a/nginx.conf b/nginx.conf new file mode 100644 --- /dev/null +++ b/nginx.conf @@ -0,0 +1,77 @@ +user  nginx; +worker_processes  auto; + +events {
+
+worker_connections 1024; +}
+
+
+
++http {
+
+include       mime.types;
+
+default_type  application/octet-stream;
+
+
+
+sendfile        on;
+
+keepalive_timeout  65;
+
+
+
+gzip on;
+
+gzip_types text/plain text/css application/json application/javascript application/xml;
+
+
+
+server {
+
+   listen 80;
+
+   server_name _;
+
+   return 301 https://$host$request_uri;
+
+}
+
+
+
+server {
+
+   listen 443 ssl;
+
+   server_name _;
+
+
+
+   ssl_certificate     /etc/letsencrypt/live/default/fullchain.pem;
+
+   ssl_certificate_key /etc/letsencrypt/live/default/privkey.pem;
+
+
+
+   ssl_protocols TLSv1.2 TLSv1.3;
+
+   ssl_ciphers HIGH:!aNULL:!MD5;
+
+
+
+   client_max_body_size 10M;
+
+
+
+   add_header X-Frame-Options "SAMEORIGIN";
+
+   add_header X-Content-Type-Options "nosniff";
+
+   add_header X-XSS-Protection "1; mode=block";
+
+
+
+   location / {
+
+       proxy_pass http://app:8000;
+
+       proxy_set_header Host $host;
+
+       proxy_set_header X-Real-IP $remote_addr;
+
+       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+       proxy_set_header X-Forwarded-Proto $scheme;
+
+   }
+
+} +}
