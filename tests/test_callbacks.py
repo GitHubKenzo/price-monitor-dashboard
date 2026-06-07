@@ -53,7 +53,9 @@ def test_create_price_graph_empty():
     fig = app.create_price_graph()
     assert fig == {}
 
+
 def test_update_product_graph_returns_empty_when_no_product():
     from app import update_product_graph
+
     fig = update_product_graph(None)
     assert fig == {}
