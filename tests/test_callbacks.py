@@ -36,3 +36,24 @@ def test_update_product_graph_returns_figure():
     product = df["product_name"].iloc[0]
     fig = update_product_graph(product)
     assert "data" in fig
+
+
+def test_tab2_latest_prices_table_exists():
+    content = render_content("tab-2")
+    # DataTable が生成されているか
+    assert any("DataTable" in str(type(c)) for c in content.children)
+
+
+def test_create_price_graph_empty():
+    # モックとして空 DataFrame を返すようにパッチ
+    import app
+    import pandas as pd
+
+    app.load_price_history = lambda: pd.DataFrame()
+    fig = app.create_price_graph()
+    assert fig == {}
+
+def test_update_product_graph_returns_empty_when_no_product():
+    from app import update_product_graph
+    fig = update_product_graph(None)
+    assert fig == {}
